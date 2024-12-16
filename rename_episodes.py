@@ -9,9 +9,11 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 import threading
+import subprocess
+import ffmpeg
 
 # Import functions from our existing scripts
-from transcribe import extract_audio_from_mkv, transcribe_audio
+from transcribe import extract_audio_from_mkv, transcribe_audio, update_mkv_metadata
 from identify_episode import match_transcript_to_episode, fetch_friends_episodes
 
 app = typer.Typer()
@@ -76,9 +78,9 @@ def process_file(mkv_file: Path, output_path: Path, task_id: int, max_duration: 
 
     return None
 
-def rename_files(transcripts: Dict, input_dir: Path, min_score: int = 60,
+def rename_and_tag_files(transcripts: Dict, input_dir: Path, min_score: int = 60,
                 template: str = "{series}.S{season}E{episode}.{title}") -> None:
-    """Rename MKV files based on identified episodes"""
+    """Rename MKV files and update metadata based on identified episodes"""
     # Fetch episode data
     episodes = fetch_friends_episodes()
 
@@ -99,7 +101,10 @@ def rename_files(transcripts: Dict, input_dir: Path, min_score: int = 60,
             old_path = Path(input_dir) / filename
             new_path = Path(input_dir) / new_filename
 
-            # Rename file
+            # First update metadata (while we still have the old path)
+            update_mkv_metadata(old_path, best_match, min_score)
+
+            # Then rename file
             try:
                 shutil.move(old_path, new_path)
                 print(f"Renamed to: {new_filename}")
@@ -124,7 +129,7 @@ def main(
     Process MKV files in a directory:
     1. Transcribe the first N seconds of each file
     2. Identify the Friends episode
-    3. Rename the file to match the episode
+    3. Update metadata and rename the file to match the episode
     """
     global progress
 
@@ -168,8 +173,8 @@ def main(
                 with progress_lock:
                     progress.advance(task_id)
 
-    print("\nStep 2: Identifying episodes and renaming files...")
-    rename_files(results, input_path, min_score, template)
+    print("\nStep 2: Identifying episodes, updating metadata, and renaming files...")
+    rename_and_tag_files(results, input_path, min_score, template)
 
     # Cleanup
     if temp_output.exists():
