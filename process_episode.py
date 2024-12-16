@@ -13,9 +13,69 @@ import threading
 import ffmpeg
 import whisper
 import torch
-from identify_episode import match_transcript_to_episode, fetch_friends_episodes
+import requests
+from identify_episode import match_transcript_to_episode, fetch_friends_episodes, OMDB_API_KEY, FRIENDS_IMDB_ID
 
 app = typer.Typer()
+
+def show_omdb_data(season: int, episode: int) -> None:
+    """
+    Display raw OMDB API data for the episode.
+    """
+    try:
+        print("\nOMDB Episode Data:")
+        print("-" * 50)
+
+        # First get episode IMDb ID
+        season_url = f"http://www.omdbapi.com/?apikey={OMDB_API_KEY}&i={FRIENDS_IMDB_ID}&Season={season}"
+        season_response = requests.get(season_url)
+        season_response.raise_for_status()
+        season_data = season_response.json()
+
+        episode_imdb_id = None
+        for ep in season_data.get('Episodes', []):
+            if int(ep['Episode']) == episode:
+                episode_imdb_id = ep['imdbID']
+                break
+
+        if episode_imdb_id:
+            # Get detailed episode data
+            ep_url = f"http://www.omdbapi.com/?apikey={OMDB_API_KEY}&i={episode_imdb_id}"
+            ep_response = requests.get(ep_url)
+            ep_response.raise_for_status()
+            ep_data = ep_response.json()
+
+            # Display all fields
+            for key, value in ep_data.items():
+                print(f"{key}: {value}")
+
+        print("-" * 50)
+    except Exception as e:
+        print(f"Error fetching OMDB data: {e}")
+
+def show_mkv_metadata(mkv_path: Path) -> None:
+    """
+    Display MKV file metadata using ffprobe.
+    """
+    try:
+        print("\nMKV Metadata:")
+        print("-" * 50)
+        cmd = [
+            "ffprobe",
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format",
+            str(mkv_path)
+        ]
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        metadata = json.loads(result.stdout)['format'].get('tags', {})
+
+        # Display metadata in a readable format
+        for key, value in metadata.items():
+            print(f"{key}: {value}")
+        print("-" * 50)
+    except Exception as e:
+        print(f"Error reading metadata: {e}")
 
 def download_episode(url: str, output_dir: Path) -> Optional[Path]:
     """
@@ -247,6 +307,9 @@ def process_episode(
             best_match, score = matches[0]
             print(f"Matched to: {best_match['title']} (Score: {score}%)")
 
+            # Show OMDB data
+            show_omdb_data(best_match['season'], best_match['episode'])
+
             # Update metadata
             if not update_mkv_metadata(mkv_path, best_match):
                 return False
@@ -263,6 +326,9 @@ def process_episode(
             new_transcript_path = mkv_path.parent / f"{new_filename}.txt"
             shutil.move(transcript_path, new_transcript_path)
             print(f"Renamed transcript to: {new_transcript_path.name}")
+
+            # Show metadata
+            show_mkv_metadata(new_video_path)
 
             return True
         else:

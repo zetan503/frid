@@ -11,6 +11,8 @@ A tool to automatically identify, rename, and tag Friends TV show episodes. It c
   - Extract and transcribe audio (using Whisper)
   - Match against Friends episode database
   - Update metadata and rename files
+- Saves transcripts alongside video files
+- Shows complete OMDB episode data
 - GPU-accelerated transcription when available
 - Fuzzy text matching for reliable episode identification
 - Configurable confidence thresholds and match limits
@@ -75,7 +77,7 @@ The script provides three main approaches for processing episodes:
 Download and process a video from a URL:
 
 ```bash
-python3 process_episode.py from-url "VIDEO_URL" output_dir/
+python3 process_episode.py from-url "VIDEO_URL" output/
 ```
 
 This will:
@@ -83,6 +85,7 @@ This will:
 2. Extract and transcribe the audio
 3. Match against episode database
 4. Update metadata and rename file
+5. Save transcript alongside video
 
 Example:
 ```bash
@@ -103,6 +106,7 @@ This will:
 1. Extract and transcribe audio
 2. Match against episode database
 3. Update metadata and rename file
+4. Save transcript alongside video
 
 Example:
 ```bash
@@ -141,6 +145,60 @@ python3 process_episode.py from-url "VIDEO_URL" output/ --min-score 55 --max-dur
 python3 process_episode.py from-file episode.mkv --template "Friends.{season}x{episode}.{title}"
 ```
 
+## Output
+
+For each processed episode, you'll see:
+
+1. OMDB Episode Data:
+   - Title, Plot, Runtime
+   - Air date, Ratings
+   - Director, Writer, Actors
+   - All other OMDB metadata
+
+2. MKV Metadata:
+   - Episode title and ID
+   - Season and episode numbers
+   - Show name
+   - Description
+
+3. Generated Files:
+   - Renamed MKV file with episode information
+   - Text file containing the transcript
+   - Both files use the same naming template
+
+Example output:
+```
+OMDB Episode Data:
+--------------------------------------------------
+Title: The One with Monica and Chandler's Wedding: Part 2
+Year: 2001
+Rated: TV-PG
+Released: 17 May 2001
+Season: 7
+Episode: 24
+Runtime: 22 min
+Genre: Comedy, Romance
+Director: Kevin Bright
+Writer: David Crane, Marta Kauffman, Patty Lin
+Actors: Jennifer Aniston, Courteney Cox, Lisa Kudrow
+Plot: Ross tries to find Chandler with Phoebe's help...
+...
+
+MKV Metadata:
+--------------------------------------------------
+title: Friends - S07E24 - The One with Monica and Chandler's Wedding: Part 2
+show: Friends
+season_number: 7
+episode_sort: 24
+episode_id: S07E24
+description: Ross tries to find Chandler with Phoebe's help...
+--------------------------------------------------
+
+Generated Files:
+Friends.S07E24.The.One.with.Monica.and.Chandlers.Wedding.Part.2.mkv
+Friends.S07E24.The.One.with.Monica.and.Chandlers.Wedding.Part.2.txt
+```
+
 ## How It Works
 
 1. **Video Processing**:
@@ -161,6 +219,7 @@ python3 process_episode.py from-file episode.mkv --template "Friends.{season}x{e
 4. **File Processing**:
    - Updates MKV metadata with episode information
    - Renames file using standardized format
+   - Saves transcript to accompanying text file
    - Preserves original if no confident match found
 
 ## Episode Data Caching
@@ -181,6 +240,7 @@ The system caches Friends episode data from OMDB locally to improve performance:
   - Good accuracy for TV show dialogue
 - Default confidence threshold is 60%
 - Original filenames are preserved if no confident match is found
+- Transcripts are saved for verification and debugging
 
 ## License
 

@@ -12,6 +12,6 @@ mkdir -p input
 
 # Download sample episode clip
 echo "Downloading sample Friends episode clip..."
-python3 process_episode.py from-url "https://www.youtube.com/watch?v=SAMPLE_FRIENDS_CLIP" input/
+python3 process_episode.py from-url "https://www.youtube.com/watch?v=mO133a-Tutw" input/
 
 echo "Done! Check input/ directory for the processed episode."
