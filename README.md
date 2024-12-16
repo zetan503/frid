@@ -20,12 +20,35 @@ A tool to transcribe MKV video files, identify Friends TV show episodes based on
   - ~925MB GPU memory for small model
 - yt-dlp (optional, for downloading sample episodes)
 
+## Quick Start Demo
+
+A demo script is provided to show the complete workflow:
+
+```bash
+# Clone the repository
+git clone https://github.com/zetan503/frid.git
+cd frid
+
+# Set up environment
+cp .env.example .env
+# Edit .env and add your OMDB API key
+
+# Run the demo
+./demo.sh
+```
+
+The demo will:
+1. Download a sample Friends episode clip
+2. Convert it to MKV format
+3. Run the episode detection
+4. Automatically rename the file based on the identified episode
+
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/mkv-transcribe.git
-cd mkv-transcribe
+git clone https://github.com/zetan503/frid.git
+cd frid
 ```
 
 2. Install dependencies:
@@ -35,6 +58,12 @@ sudo apt install ffmpeg
 
 # Install Python packages
 pip install --user -r requirements.txt
+```
+
+3. Set up environment variables:
+```bash
+cp .env.example .env
+# Edit .env and add your OMDB API key
 ```
 
 ## Usage
