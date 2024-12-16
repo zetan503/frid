@@ -20,6 +20,23 @@ A tool to transcribe MKV video files, identify Friends TV show episodes based on
   - ~925MB GPU memory for small model
 - yt-dlp (optional, for downloading sample episodes)
 
+## Getting an OMDB API Key
+
+The script uses the OMDB API to fetch Friends episode data. To get your free API key:
+
+1. Visit [OMDB API Key Registration](https://www.omdbapi.com/apikey.aspx)
+2. Choose the FREE tier (1,000 daily limit)
+3. Enter your email address
+4. Click "Submit"
+5. Check your email for the verification link
+6. Click the verification link to activate your API key
+7. Copy your API key and add it to the .env file:
+   ```
+   OMDB_API_KEY=your_api_key_here
+   ```
+
+Note: The FREE tier allows 1,000 requests per day, which is more than enough as the script caches episode data locally.
+
 ## Quick Start Demo
 
 A demo script is provided to show the complete workflow:
