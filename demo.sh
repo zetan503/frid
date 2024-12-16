@@ -1,29 +1,17 @@
 #!/bin/bash
 
-# Exit on error
-set -e
+# Check if OMDB API key is set
+if [ ! -f .env ] || ! grep -q "OMDB_API_KEY" .env; then
+    echo "Error: OMDB API key not found in .env file"
+    echo "Please copy .env.example to .env and add your OMDB API key"
+    exit 1
+fi
 
-echo "Creating demo directories..."
-mkdir -p input output
+# Create input directory
+mkdir -p input
 
-echo "Installing required packages..."
-pip install --user --upgrade yt-dlp
-# Install ffmpeg if not present (needed for audio extraction and metadata)
-sudo apt-get update && sudo apt-get install -y ffmpeg
+# Download sample episode clip
+echo "Downloading sample Friends episode clip..."
+python3 process_episode.py from-url "https://www.youtube.com/watch?v=SAMPLE_FRIENDS_CLIP" input/
 
-echo "Downloading sample video..."
-yt-dlp -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' \
-    "https://www.youtube.com/watch?v=gmr41ht2Sq4" \
-    -o "input/sample_episode.mp4"
-
-echo "Converting to MKV..."
-ffmpeg -i input/sample_episode.mp4 -c copy input/sample_episode.mkv
-
-echo "Cleaning up MP4..."
-rm input/sample_episode.mp4
-
-echo "Running episode detection, metadata tagging, and automatic renaming..."
-python3 rename_episodes.py input --min-score 55 --max-duration 90
-
-echo "Done! The MKV file has been renamed and metadata has been updated."
-echo "Check the input directory for the renamed file with updated metadata."
+echo "Done! Check input/ directory for the processed episode."

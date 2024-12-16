@@ -14,8 +14,7 @@ from identify_episode import fetch_friends_episodes, match_transcript_to_episode
 
 app = typer.Typer()
 
-MATCH_THRESHOLD = 55  # Lowered from 60 since we're getting close matches
-
+MATCH_THRESHOLD = 50  # Lowered from 60 since we're getting close matches
 
 def extract_audio_from_mkv(mkv_path, output_path, max_duration=None):
     """
@@ -53,7 +52,6 @@ def extract_audio_from_mkv(mkv_path, output_path, max_duration=None):
         if e.stderr:
             print(f"FFmpeg error: {e.stderr.decode()}")
         return False
-
 
 def transcribe_audio(audio_path):
     """
@@ -105,7 +103,6 @@ def transcribe_audio(audio_path):
         print(f"Error transcribing {audio_path}: {e}")
         return None
 
-
 def display_mkv_metadata(mkv_path: Path):
     """
     Display metadata of the MKV file using ffmpeg-python.
@@ -126,7 +123,6 @@ def display_mkv_metadata(mkv_path: Path):
         print("-" * 50)
     except ffmpeg.Error as e:
         print(f"Error reading metadata from {mkv_path}: {e.stderr.decode()}")
-
 
 def update_mkv_metadata(
     mkv_path: Path, episode_info: Dict, min_score: int = MATCH_THRESHOLD
@@ -195,7 +191,6 @@ def update_mkv_metadata(
         if temp_path.exists():
             temp_path.unlink()
         return False
-
 
 def process_mkv_files(input_dir, output_dir, max_duration=None):
     """
@@ -271,7 +266,6 @@ def process_mkv_files(input_dir, output_dir, max_duration=None):
 
     return results
 
-
 @app.command()
 def main(
     input_dir: str = typer.Argument(..., help="Directory containing MKV files"),
@@ -288,7 +282,6 @@ def main(
     """
     results = process_mkv_files(input_dir, output_dir, max_duration)
     print(f"Processed {len(results)} files.")
-
 
 if __name__ == "__main__":
     app()
