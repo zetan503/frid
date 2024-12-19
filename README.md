@@ -68,6 +68,36 @@ cp .env.example .env
 # Edit .env and add your OMDB API key
 ```
 
+## Fabric Setup (Ubuntu)
+
+1. Install Go from backports:
+```bash
+# Add the repository
+sudo add-apt-repository ppa:longsleep/golang-backports
+
+# Update package list
+sudo apt update
+
+# Install Go
+sudo apt install golang-go
+```
+
+2. Install Fabric:
+```bash
+go install github.com/danielmiessler/fabric@latest
+```
+
+3. Update PATH to include Go binaries:
+```bash
+# Add to your ~/.bashrc or ~/.zshrc
+export PATH=$GOPATH/bin:$GOROOT/bin:$HOME/.local/bin:$PATH
+```
+
+4. Reload your shell configuration:
+```bash
+source ~/.bashrc  # or source ~/.zshrc if using zsh
+```
+
 ## Usage
 
 The script provides three main approaches for processing episodes:

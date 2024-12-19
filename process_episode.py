@@ -7,14 +7,14 @@ import shutil
 import re
 import os
 import subprocess
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 import threading
 import ffmpeg
-import whisper
-import torch
 import requests
 from identify_episode import match_transcript_to_episode, fetch_friends_episodes, OMDB_API_KEY, FRIENDS_IMDB_ID
+from summarize_episode import summarize_transcript
+from transcribe import extract_audio_from_mkv, transcribe_audio
 
 app = typer.Typer()
 
@@ -124,11 +124,10 @@ def download_episode(url: str, output_dir: Path) -> Optional[Path]:
         print(f"Error: {e}")
         return None
 
-def extract_audio(mkv_path: Path, output_path: Path, max_duration: Optional[int] = None) -> bool:
+def extract_audio(mkv_path: Path, output_path: Path) -> bool:
     """
-    Extract audio from MKV file using ffmpeg.
+    Extract full audio from MKV file using ffmpeg.
     Converts to WAV format which is well-supported by most STT engines.
-    Optionally limits the duration of the extracted audio.
     """
     try:
         command = [
@@ -145,13 +144,8 @@ def extract_audio(mkv_path: Path, output_path: Path, max_duration: Optional[int]
             "16000",  # 16kHz sample rate
             "-ac",
             "1",  # Mono channel
+            str(output_path)
         ]
-
-        # Add duration limit if specified
-        if max_duration:
-            command.extend(["-t", str(max_duration)])
-
-        command.extend(["-f", "wav", str(output_path)])
 
         subprocess.run(command, check=True, capture_output=True)
         return True
@@ -160,50 +154,6 @@ def extract_audio(mkv_path: Path, output_path: Path, max_duration: Optional[int]
         if e.stderr:
             print(f"FFmpeg error: {e.stderr.decode()}")
         return False
-
-def transcribe_audio(audio_path: Path) -> Optional[str]:
-    """
-    Transcribe audio using Whisper.
-    Returns the transcribed text.
-    """
-    try:
-        # Force CUDA device if available
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        if device == "cuda":
-            print(f"Using GPU: {torch.cuda.get_device_name(0)}")
-            print(f"GPU Memory allocated: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
-
-            # load model on GPU
-            model = whisper.load_model("tiny")
-            model = model.cuda()
-            torch.cuda.synchronize()
-
-            print(f"GPU Memory after model load: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
-
-            # Enable mixed precision for faster processing
-            with torch.cuda.amp.autocast():
-                result = model.transcribe(
-                    str(audio_path),
-                    language="en",
-                    initial_prompt="TV show episode transcript:",
-                    fp16=True,
-                )
-                torch.cuda.synchronize()
-
-            print(f"GPU Memory after transcription: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
-        else:
-            print("No GPU found, using CPU for transcription...")
-            model = whisper.load_model("tiny")
-            result = model.transcribe(
-                str(audio_path),
-                language="en",
-                initial_prompt="TV show episode transcript:",
-            )
-
-        return result["text"].strip()
-    except Exception as e:
-        print(f"Error transcribing audio: {e}")
-        return None
 
 def format_episode_filename(episode: Dict, template: str) -> str:
     """Format episode information into filename using template"""
@@ -248,7 +198,7 @@ def update_mkv_metadata(mkv_path: Path, episode_info: Dict) -> bool:
             "-metadata", f"season_number={episode_info['season']}",
             "-metadata", f"episode_sort={episode_info['episode']}",
             "-metadata", f"episode_id=S{episode_info['season']:02d}E{episode_info['episode']:02d}",
-            "-metadata", f"description={episode_info['summary']}",
+            "-metadata", f"description={episode_info.get('summary', episode_info.get('ai_summary', ''))}",
             str(temp_path)
         ]
 
@@ -265,15 +215,15 @@ def update_mkv_metadata(mkv_path: Path, episode_info: Dict) -> bool:
 def process_episode(
     mkv_path: Path,
     min_score: int = 60,
-    max_duration: Optional[int] = 90,
     template: str = "{series}.S{season}E{episode}.{title}"
 ) -> bool:
     """
     Process a single episode:
-    1. Extract audio
-    2. Transcribe
-    3. Match to episode
-    4. Update metadata and rename
+    1. Extract full audio
+    2. Transcribe entire episode
+    3. Generate AI summary
+    4. Match to episode using both transcript and summary
+    5. Update metadata and rename
     """
     try:
         # Create temporary directory
@@ -281,13 +231,13 @@ def process_episode(
         temp_dir.mkdir(exist_ok=True)
         temp_wav = temp_dir / "temp.wav"
 
-        # Extract audio
+        # Extract full audio
         print("Extracting audio...")
-        if not extract_audio(mkv_path, temp_wav, max_duration):
+        if not extract_audio(mkv_path, temp_wav):
             return False
 
-        # Transcribe audio
-        print("Transcribing audio...")
+        # Transcribe full audio
+        print("Transcribing audio (this may take a while for full episodes)...")
         transcript = transcribe_audio(temp_wav)
         if not transcript:
             return False
@@ -298,14 +248,25 @@ def process_episode(
             f.write(transcript)
         print(f"Saved transcript to: {transcript_path}")
 
-        # Match transcript to episode
+        # Generate AI summary
+        print("Generating AI summary...")
+        ai_summary = summarize_transcript(transcript_path)
+        if ai_summary:
+            print("\nAI Summary:")
+            print("-----------------")
+            print(ai_summary)
+
+        # Match transcript to episode using both transcript and AI summary
         print("Matching transcript to episode...")
         episodes = fetch_friends_episodes()
-        matches = match_transcript_to_episode(transcript, episodes)
+        matches = match_transcript_to_episode(transcript, episodes, ai_summary)
 
         if matches and matches[0][1] >= min_score:
             best_match, score = matches[0]
             print(f"Matched to: {best_match['title']} (Score: {score}%)")
+
+            # Add AI summary to episode info
+            best_match['ai_summary'] = ai_summary
 
             # Show OMDB data
             show_omdb_data(best_match['season'], best_match['episode'])
@@ -349,7 +310,6 @@ def from_url(
     url: str = typer.Argument(..., help="URL of the video to download"),
     output_dir: str = typer.Argument(..., help="Directory to save the processed file"),
     min_score: int = typer.Option(60, help="Minimum confidence score for matching"),
-    max_duration: int = typer.Option(90, help="Seconds of audio to transcribe for matching"),
     template: str = typer.Option(
         "{series}.S{season}E{episode}.{title}",
         help="Template for renamed files. Available variables: {series}, {season}, {episode}, {title}"
@@ -358,7 +318,7 @@ def from_url(
     """
     Process a Friends episode from a video URL:
     1. Download video and convert to MKV
-    2. Extract and transcribe audio
+    2. Extract and transcribe full audio
     3. Match to episode database
     4. Update metadata and rename file
     """
@@ -366,13 +326,13 @@ def from_url(
     output_path.mkdir(exist_ok=True)
 
     # Download and convert video
-    mkv_path = download_episode(url, output_path)  # Removed max_duration parameter
+    mkv_path = download_episode(url, output_path)
     if not mkv_path:
         print("Failed to download/convert video")
         return
 
     # Process the episode
-    if process_episode(mkv_path, min_score, max_duration, template):
+    if process_episode(mkv_path, min_score, template):
         print("\nSuccessfully processed episode!")
     else:
         print("\nFailed to process episode")
@@ -381,7 +341,6 @@ def from_url(
 def from_file(
     input_file: str = typer.Argument(..., help="Path to input MKV file"),
     min_score: int = typer.Option(60, help="Minimum confidence score for matching"),
-    max_duration: int = typer.Option(90, help="Seconds of audio to transcribe for matching"),
     template: str = typer.Option(
         "{series}.S{season}E{episode}.{title}",
         help="Template for renamed files. Available variables: {series}, {season}, {episode}, {title}"
@@ -389,7 +348,7 @@ def from_file(
 ):
     """
     Process an existing MKV file:
-    1. Extract and transcribe audio
+    1. Extract and transcribe full audio
     2. Match to episode database
     3. Update metadata and rename file
     """
@@ -398,7 +357,7 @@ def from_file(
         print(f"File not found: {input_file}")
         return
 
-    if process_episode(input_path, min_score, max_duration, template):
+    if process_episode(input_path, min_score, template):
         print("\nSuccessfully processed episode!")
     else:
         print("\nFailed to process episode")
@@ -407,7 +366,6 @@ def from_file(
 def batch(
     input_dir: str = typer.Argument(..., help="Directory containing MKV files"),
     min_score: int = typer.Option(60, help="Minimum confidence score for matching"),
-    max_duration: int = typer.Option(90, help="Seconds of audio to transcribe for matching"),
     template: str = typer.Option(
         "{series}.S{season}E{episode}.{title}",
         help="Template for renamed files. Available variables: {series}, {season}, {episode}, {title}"
@@ -415,7 +373,7 @@ def batch(
 ):
     """
     Process all MKV files in a directory:
-    1. Extract and transcribe audio from each file
+    1. Extract and transcribe full audio from each file
     2. Match to episode database
     3. Update metadata and rename files
     """
@@ -428,7 +386,7 @@ def batch(
     success_count = 0
     for mkv_file in mkv_files:
         print(f"\nProcessing: {mkv_file.name}")
-        if process_episode(mkv_file, min_score, max_duration, template):
+        if process_episode(mkv_file, min_score, template):
             success_count += 1
 
     print(f"\nProcessed {success_count} of {len(mkv_files)} files successfully")

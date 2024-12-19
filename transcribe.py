@@ -67,8 +67,7 @@ def transcribe_audio(audio_path):
                 f"GPU Memory allocated: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB"
             )
 
-            # load model on GPU
-            model = whisper.load_model("tiny")
+            model = whisper.load_model("turbo")
             model = model.cuda()  # Explicitly move to GPU
             torch.cuda.synchronize()  # Ensure model is loaded to GPU
 
@@ -76,13 +75,40 @@ def transcribe_audio(audio_path):
                 f"GPU Memory after model load: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB"
             )
 
+            # Create a more detailed initial prompt for better context
+            initial_prompt = """
+            This is a transcript from the TV show Friends. The main characters are:
+            - Ross Geller: paleontologist, Monica's brother
+            - Rachel Green: fashion enthusiast, Monica's friend
+            - Monica Geller: chef, Ross's sister
+            - Chandler Bing: office worker, Joey's roommate
+            - Joey Tribbiani: actor
+            - Phoebe Buffay: masseuse, musician
+
+            Common locations include their apartments, Central Perk coffee shop, and various New York City settings.
+
+            The transcript should focus on capturing:
+            1. Key plot points and events
+            2. Specific actions and decisions
+            3. Important conversations and revelations
+            4. Unique or special occasions
+
+            Please transcribe with attention to these elements while maintaining accuracy of the dialogue.
+            """
+
             # Enable mixed precision for faster processing
             with torch.cuda.amp.autocast():
                 result = model.transcribe(
                     str(audio_path),
                     language="en",
-                    initial_prompt="TV show episode transcript:",
+                    initial_prompt=initial_prompt,
                     fp16=True,  # Enable FP16 on GPU
+                    # Additional parameters for better transcription
+                    task="transcribe",
+                    condition_on_previous_text=True,
+                    temperature=0.0,  # Reduce randomness
+                    best_of=5,  # Increase beam search
+                    no_speech_threshold=0.6,  # Stricter silence detection
                 )
                 torch.cuda.synchronize()  # Ensure processing is complete
 
@@ -95,10 +121,26 @@ def transcribe_audio(audio_path):
             result = model.transcribe(
                 str(audio_path),
                 language="en",
-                initial_prompt="TV show episode transcript:",
+                initial_prompt=initial_prompt,
+                condition_on_previous_text=True,
+                temperature=0.0,
+                best_of=5,
+                no_speech_threshold=0.6,
             )
 
-        return result["text"].strip()
+        # Post-process the transcript to improve readability and context
+        transcript = result["text"].strip()
+
+        # Clean up common transcription artifacts
+        transcript = transcript.replace(" ,", ",")
+        transcript = transcript.replace(" .", ".")
+        transcript = transcript.replace(" ?", "?")
+        transcript = transcript.replace(" !", "!")
+
+        # Add paragraph breaks at natural pauses
+        transcript = transcript.replace(". ", ".\n\n")
+
+        return transcript
     except Exception as e:
         print(f"Error transcribing {audio_path}: {e}")
         return None
