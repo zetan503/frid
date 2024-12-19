@@ -13,6 +13,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from dotenv import load_dotenv
+import re
 
 # Load environment variables
 load_dotenv()
@@ -28,9 +29,92 @@ FRIENDS_IMDB_ID = "tt0108778"  # Friends series IMDb ID
 CACHE_FILE = "friends_episodes_cache.json"
 CACHE_EXPIRY_DAYS = 30  # Refresh cache after 30 days
 
+# Character names for better matching
+MAIN_CHARACTERS = [
+    "Ross", "Rachel", "Monica", "Chandler", "Joey", "Phoebe",
+    "Geller", "Green", "Bing", "Buffay", "Tribbiani"
+]
+
 # Thread-safe progress bars
 progress_lock = threading.Lock()
 progress = None
+
+def extract_key_elements(text: str) -> str:
+    """
+    Extract key elements from text:
+    - Key actions and events
+    - Locations and objects
+    - Specific plot points
+    Returns a simplified string with key elements.
+    """
+    # Convert to lowercase for processing
+    text = text.lower()
+
+    # Extract sentences that seem most plot-relevant
+    key_sentences = []
+    sentences = re.split('[.!?]+', text)
+    for sentence in sentences:
+        # Look for sentences with plot-relevant indicators
+        if any(indicator in sentence.lower() for indicator in [
+            'because', 'when', 'after', 'before', 'during',
+            'decides', 'realizes', 'finds', 'discovers',
+            'tells', 'says', 'asks', 'reveals'
+        ]):
+            cleaned = re.sub(r'\s+', ' ', sentence).strip()
+            if cleaned:
+                key_sentences.append(cleaned)
+
+    # If we found key sentences, use them
+    if key_sentences:
+        return ' '.join(key_sentences)
+
+    # Fallback: return original text
+    return text
+
+def print_match_details(transcript: str, ai_summary: str, episode: Dict, score: int):
+    """Print detailed matching information for debugging"""
+    print(f"\nMatch analysis for S{episode['season']:02d}E{episode['episode']:02d} - {episode['title']}")
+    print("=" * 80)
+
+    # Show extracted key elements from transcript
+    print("Key elements from transcript:")
+    key_elements_transcript = extract_key_elements(transcript)
+    print(key_elements_transcript)
+    print("-" * 40)
+
+    # Show AI summary if available
+    if ai_summary:
+        print("AI Summary:")
+        print(ai_summary)
+        print("-" * 40)
+
+    # Show plot summary
+    print("Plot summary:")
+    print(episode['summary'])
+    print("-" * 40)
+
+    # Show similarity scores
+    ratio_transcript = fuzz.ratio(key_elements_transcript, episode['summary'].lower())
+    token_sort_transcript = fuzz.token_sort_ratio(key_elements_transcript, episode['summary'].lower())
+    token_set_transcript = fuzz.token_set_ratio(key_elements_transcript, episode['summary'].lower())
+
+    print("Transcript matching scores:")
+    print(f"Basic ratio: {ratio_transcript}")
+    print(f"Token sort ratio: {token_sort_transcript}")
+    print(f"Token set ratio: {token_set_transcript}")
+
+    if ai_summary:
+        ratio_summary = fuzz.ratio(ai_summary.lower(), episode['summary'].lower())
+        token_sort_summary = fuzz.token_sort_ratio(ai_summary.lower(), episode['summary'].lower())
+        token_set_summary = fuzz.token_set_ratio(ai_summary.lower(), episode['summary'].lower())
+
+        print("\nAI Summary matching scores:")
+        print(f"Basic ratio: {ratio_summary}")
+        print(f"Token sort ratio: {token_sort_summary}")
+        print(f"Token set ratio: {token_set_summary}")
+
+    print(f"\nFinal combined score: {score}")
+    print("=" * 80)
 
 def load_transcripts(transcript_path: str) -> Dict:
     """Load transcripts from JSON file"""
@@ -143,20 +227,50 @@ def fetch_friends_episodes() -> List[Dict]:
 
     return episodes
 
-def match_transcript_to_episode(transcript: str, episodes: List[Dict]) -> List[Tuple[Dict, int]]:
+def match_transcript_to_episode(transcript: str, episodes: List[Dict], ai_summary: str = None) -> List[Tuple[Dict, int]]:
     """
     Match transcript against episode summaries using fuzzy text matching.
     Returns list of (episode, score) tuples sorted by match score.
     """
+    # Extract key elements from transcript
+    key_elements = extract_key_elements(transcript)
+
     matches = []
     for episode in episodes:
-        # Calculate multiple similarity scores
-        plot_score = fuzz.token_set_ratio(transcript.lower(), episode['summary'].lower())
-        title_score = fuzz.token_set_ratio(transcript.lower(), episode['title'].lower())
+        # Calculate transcript similarity scores using different methods
+        token_sort_transcript = fuzz.token_sort_ratio(key_elements, episode['summary'].lower())
+        token_set_transcript = fuzz.token_set_ratio(key_elements, episode['summary'].lower())
+        partial_ratio_transcript = fuzz.partial_ratio(key_elements, episode['summary'].lower())
 
-        # Weight plot matches more heavily than title matches
-        combined_score = (plot_score * 0.8) + (title_score * 0.2)
+        # Take the highest score from different matching methods
+        transcript_score = max(token_sort_transcript, token_set_transcript, partial_ratio_transcript)
+
+        # Calculate AI summary similarity scores if available
+        summary_score = 0
+        if ai_summary:
+            token_sort_summary = fuzz.token_sort_ratio(ai_summary.lower(), episode['summary'].lower())
+            token_set_summary = fuzz.token_set_ratio(ai_summary.lower(), episode['summary'].lower())
+            partial_ratio_summary = fuzz.partial_ratio(ai_summary.lower(), episode['summary'].lower())
+            summary_score = max(token_sort_summary, token_set_summary, partial_ratio_summary)
+
+        # Calculate final score
+        if ai_summary:
+            # Weight transcript and AI summary equally, but focus on content matching
+            combined_score = (transcript_score + summary_score) / 2
+        else:
+            combined_score = transcript_score
+
+        # Add a small bonus (max 10 points) for unique plot elements
+        unique_elements = ['thanksgiving', 'wedding', 'birthday', 'holiday', 'christmas',
+                         'halloween', 'proposal', 'pregnant', 'baby', 'divorce', 'date']
+        bonus_score = sum(2 for elem in unique_elements
+                         if elem in transcript.lower() and elem in episode['summary'].lower())
+        combined_score = min(100, combined_score + min(10, bonus_score))
+
         matches.append((episode, int(combined_score)))
+
+        # Print detailed match information
+        print_match_details(transcript, ai_summary, episode, int(combined_score))
 
     # Sort by score in descending order
     return sorted(matches, key=lambda x: x[1], reverse=True)
